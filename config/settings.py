@@ -28,7 +28,7 @@ DEBUG = env("DEBUG")
 
 ALLOWED_HOSTS = ['*']
 
-AUTH_USER_MODEL = "accounts.User"
+AUTH_USER_MODEL = "auths.User"
 # Application definition
 
 SYSTEM_APPS = [
@@ -60,9 +60,9 @@ THIRD_PARTY_APPS = [
     ]
 
 CUSTOM_APPS = [
-    "auth.apps.AuthConfig",
+    "auths.apps.AuthsConfig",
     "budgets.apps.BudgetsConfig",
-    "rxpenditure.apps.ExpenditureConfig",
+    "expenditure.apps.ExpenditureConfig",
 ]
 
 INSTALLED_APPS = SYSTEM_APPS + THIRD_PARTY_APPS + CUSTOM_APPS
@@ -84,7 +84,7 @@ REST_AUTH = {
     'JWT_AUTH_HTTPONLY':False,
     
     #custom한 serializer로 변경
-    'REGISTER_SERIALIZER': 'accounts.serializers.CustomRegisterSerializer',
+    'REGISTER_SERIALIZER': 'auths.serializers.CustomRegisterSerializer',
 }
 
 #simple JWT 환경 설정
