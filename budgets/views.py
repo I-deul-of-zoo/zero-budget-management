@@ -4,16 +4,30 @@ from rest_framework.generics import GenericAPIView
 from .models import Category, Budgets
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.serializers import ValidationError
 import jwt
-from django.shortcuts import get_list_or_404
+from django.shortcuts import get_list_or_404, get_object_or_404
 from .serializers import CategoryListSerializer, SetBudgetSerializer
 from .models import Category, Budgets
 from config import settings
 from django.db import IntegrityError
+from django.http import Http404
+from rest_framework.views import exception_handler
+
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = 'HS256'
 
+from rest_framework.exceptions import APIException
+# 커스텀 예외 클래스 정의
+class CategoryNotFoundException(Exception):
+    pass
+                
+        
+class DBException(APIException):
+    status_code = 500
+    default_detail = 'Internal Server Error'
+    
 class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
                                 mixins.CreateModelMixin,
                                 mixins.UpdateModelMixin,
@@ -21,6 +35,38 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
     permission_classes=[IsAuthenticated]
     queryset = Category.objects.all()
     
+    #변경된 데이터가 있을때 해당 유저의 각 category 비율 조정
+    def get_total(self, request):
+        budgets = self.get_object(request)
+        request.data['category']
+        total = sum(list(budget.amount for budget in budgets) + list(request.data['category'].values()))
+        return total
+    
+    def update_ratio(self, request, total):
+        budgets = self.get_object(request)
+        for id in budgets.values_list('category', flat=True):
+            change_budget = budgets.get(category=id)
+            new_ratio = change_budget.amount / total
+            change_budget.update(ratio=new_ratio)
+        
+    
+    def create_budget_entry(self, serializer):
+        #우선은 Django에서 복합키를 지원하지 않는다.
+        #일단 복합키로 지정해 놓는것이 가장 직관적인 방법이고 복잡하게 db에 접근하여 확인 할필요가없다
+        #만약 db에 접근하는것이 복합키로 설정하는것보다 낫다고 판단되면 변경할 예정이며 더 나은 방법을 찾아봐야겠다
+        #이 로직은 post를 통해 이미 있는 데이터를 넣지 않게 하기 위해 생성
+        try:
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+        except IntegrityError as e:
+            error_message = str(e)
+            
+            if 'Duplicate entry' in error_message:
+                response_data = {'error': '중복되는 category가 이미 존재합니다. 해당 내용을 상세페이지에서 확인하고 변경해주세요'}
+                raise ValidationError(response_data)
+            else:
+                raise DBException({'error': '데이터베이스 에러가 발생했습니다.'})
+        
     def get_serializer_class(self):
         if self.request.method == 'GET':
             return CategoryListSerializer
@@ -40,12 +86,21 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
         categories = request.data['category']
         keys = categories.keys()
         values = categories.values()
+        
         #해당 total은 새로운 category가 들어올 경우 변경되어야할 부분
-        total = sum(values)
+        total = self.get_total(request)
         
         request.data.pop('category', None)
-        # category마다 데이터를 저장 해야합니다.
+        #category마다 데이터를 저장 해야합니다.
         for key, value in zip(keys, values):
+            
+            try:
+                category =Category.objects.get(name=key)
+                cate_id = category.pk
+            except Category.DoesNotExist:
+                # 커스텀 예외 발생
+                raise CategoryNotFoundException(f"{key}은 DB에 존재하지 않는 Category입니다.")
+            
             # request.data['category'] = Category.objects.get(name=key).pk
             # request.data['amount'] = value
             # request.data['ratio'] = value / total
@@ -53,32 +108,33 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
             serializer = self.get_serializer(data=request.data)
             # 유효성 검증을 하기위해 modelserializer의 field값에 맞게 데이터를 넣어 줇니다.
             #유효성 검증 전에 field에 접근해야합니다.    
-            serializer.initial_data['category'] = Category.objects.get(name=key).pk
+            serializer.initial_data['category'] = cate_id
             serializer.initial_data['amount'] = value
             serializer.initial_data['ratio'] = value / total
             
-            serializer.is_valid(raise_exception=True)
-            #우선은 Django에서 복합키를 지원하지 않는다.
-            #일단 복합키로 지정해 놓는것이 가장 직관적인 방법이고 복잡하게 db에 접근하여 확인 할필요가없다
-            #만약 db에 접근하는것이 복합키로 설정하는것보다 낫다고 판단되면 변경할 예정이며 더 나은 방법을 찾아봐야겠다
-            #이 로직은 post를 통해 이미 있는 데이터를 넣지 않게 하기 위해 생성
-            try:
-                self.perform_create(serializer)
-            except IntegrityError as e:
-                error_message = str(e)
-                
-                # 중복 키 에러인 경우에 대한 처리
-                if 'Duplicate entry' in error_message:
-                    response_data = {'error': '중복되는 category가 이미 존재합니다. 해당 내용을 상세페이지에서 확인하고 변경해주세요'}
-                    return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
-
-                # 다른 IntegrityError에 대한 기본적인 처리
-                response_data = {'error': '데이터베이스 에러가 발생했습니다.'}
-                return Response(response_data, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-            
-            headers = self.get_success_headers(serializer.data)
+            self.create_budget_entry(serializer)
             datas['objects'].append(serializer.data)
+        # 각 category가 유효한지 확인한 후 total 대비 비율 update
+        # update시 다음과 같은 error가 발생
+        '''
+        {
+            "error": "중복되는 category가 이미 존재합니다. 해당 내용을 상세페이지에서 확인하고 변경해주세요"
+        }
+        '''
+        #unique_together을 UniqueConstraint로 변경
+        self.update_ratio(request, total)
+        
+        headers = self.get_success_headers(datas)
         return Response(datas, status=status.HTTP_201_CREATED, headers=headers)
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+        
+        return Response(serializer.data)
     
     def get(self, request, *args, **kwargs):
         return self.list(request, *args, **kwargs)
@@ -89,3 +145,13 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
     def patch(self, request, *args, **kwargs):
         return self.partial_update(request, *args, **kwargs)
     
+    
+#custom 예외처리
+def custom_exception_handler(exc, context):
+    response = exception_handler(exc, context)
+
+    if isinstance(exc, CategoryNotFoundException):
+        # CategoryNotFoundException 예외를 처리하고 원하는 JSON 응답을 생성
+        return Response({"error": str(exc)}, status=status.HTTP_404_NOT_FOUND)
+
+    return response

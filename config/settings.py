@@ -114,7 +114,10 @@ REST_FRAMEWORK = {
             'dj_rest_auth.jwt_auth.JWTCookieAuthentication' ]
     ),
     
-    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema'
+    'DEFAULT_SCHEMA_CLASS': 'rest_framework.schemas.coreapi.AutoSchema',
+    
+    
+    'EXCEPTION_HANDLER': 'budgets.views.custom_exception_handler',
 }
 
 EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
