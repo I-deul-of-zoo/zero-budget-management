@@ -18,7 +18,6 @@ class SetBudgetSerializer(ModelSerializer):
         }
     
     def create(self, validated_data):
-        print(validated_data)
         # 현재 요청을 보내는 사용자(user_id)를 추출
         # create는 get_object를 하지않고 바로 serialize한 후에 model에 저장 함으로 여기서 user_id를 꺼내줘야합
         token_str = self.context['request'].headers.get("Authorization").split(' ')[1]
@@ -35,6 +34,15 @@ class SetBudgetSerializer(ModelSerializer):
         )
         budget.save()
         return budget
+    
+    def update(self, instance, validated_data):
+        # 원래의 update 메서드 호출 (필수)
+        instance = instance.filter(category_id=validated_data['category'].pk)
+        instance = instance.first()
+        instance.amount = validated_data['amount']
+        instance.save()
+        
+        return instance
     
 class CategoryListSerializer(ModelSerializer):
     class Meta:

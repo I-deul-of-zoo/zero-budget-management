@@ -44,10 +44,9 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
     
     def update_ratio(self, request, total):
         budgets = self.get_object(request)
-        for id in budgets.values_list('category', flat=True):
-            change_budget = budgets.get(category=id)
-            new_ratio = change_budget.amount / total
-            change_budget.update(ratio=new_ratio)
+        for budget in budgets:
+            new_ratio = budget.amount / total
+            Budgets.objects.filter(id=budget.id).update(ratio=new_ratio)
         
     
     def create_budget_entry(self, serializer):
@@ -66,6 +65,10 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
                 raise ValidationError(response_data)
             else:
                 raise DBException({'error': '데이터베이스 에러가 발생했습니다.'})
+            
+    def update_budget_entry(self, serializer):
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
         
     def get_serializer_class(self):
         if self.request.method == 'GET':
@@ -76,7 +79,7 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
     def get_object(self, request):
         token_str = request.headers.get("Authorization").split(' ')[1]
         data = jwt.decode(token_str, SECRET_KEY, ALGORITHM)
-        obj = get_list_or_404(Budgets, user_id=data['user_id'])
+        obj = Budgets.objects.filter(user_id=data['user_id'])
         return obj
     
     def create(self, request, *args, **kwargs):
@@ -127,14 +130,45 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
         headers = self.get_success_headers(datas)
         return Response(datas, status=status.HTTP_201_CREATED, headers=headers)
     
+    
     def update(self, request, *args, **kwargs):
-        partial = kwargs.pop('partial', False)
-        instance = self.get_object()
-        serializer = self.get_serializer(instance, data=request.data, partial=partial)
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
+        #넣고자 하는 값이 해당 user에 대한 category 존재 유무를 확인
+        # 해당 부분은 복합키 설정 
+        datas = {'objects':[]}
+        categories = request.data['category']
+        keys = categories.keys()
+        values = categories.values()
         
-        return Response(serializer.data)
+        request.data.pop('category', None)
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object(request)
+        
+        #category마다 데이터를 저장 해야합니다.
+        for key, value in zip(keys, values):
+            
+            try:
+                category =Category.objects.get(name=key)
+                cate_id = category.pk
+            except Category.DoesNotExist:
+                # 커스텀 예외 발생
+                raise CategoryNotFoundException(f"{key}은 DB에 존재하지 않는 Category입니다.")
+            
+            # request.data['category'] = Category.objects.get(name=key).pk
+            # request.data['amount'] = value
+            # request.data['ratio'] = value / total
+            
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            # 유효성 검증을 하기위해 modelserializer의 field값에 맞게 데이터를 넣어 줇니다.
+            #유효성 검증 전에 field에 접근해야합니다.    
+            serializer.initial_data['category'] = cate_id
+            serializer.initial_data['amount'] = value
+            
+            self.update_budget_entry(serializer)
+            datas['objects'].append(serializer.data)
+        # 변경하고자한 모든 값이 변경된 후에 비율을 생성 
+        total = sum(ins.amount for ins in instance)
+        self.update_ratio(request, total)
+        return Response(datas)
     
     def get(self, request, *args, **kwargs):
         return self.list(request, *args, **kwargs)
