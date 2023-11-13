@@ -1,8 +1,9 @@
 import jwt
-from rest_framework.serializers import ModelSerializer, SerializerMethodField
+from rest_framework.serializers import ModelSerializer
 from .models import Category, Budgets
 from config import settings
 from auths.models import User
+
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = 'HS256'
 

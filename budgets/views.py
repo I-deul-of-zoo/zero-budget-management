@@ -176,6 +176,7 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
 class BudgetsRecommendView(mixins.CreateModelMixin,
                             mixins.UpdateModelMixin,
                             GenericAPIView):
+    permission_classes=[IsAuthenticated]
     queryset = Budgets.objects.all()
     
     def update_budget_entry(self, serializer):
