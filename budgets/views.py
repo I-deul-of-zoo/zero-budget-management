@@ -7,26 +7,19 @@ from rest_framework.response import Response
 from rest_framework.serializers import ValidationError
 import jwt
 from django.shortcuts import get_list_or_404, get_object_or_404
-from .serializers import CategoryListSerializer, SetBudgetSerializer
+from .serializers import CategoryListSerializer, SetBudgetSerializer, BudgetsRecommendSerializer
 from .models import Category, Budgets
 from config import settings
 from django.db import IntegrityError
 from django.http import Http404
 from rest_framework.views import exception_handler
-
+import math
 
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = 'HS256'
 
 from rest_framework.exceptions import APIException
-# 커스텀 예외 클래스 정의
-class CategoryNotFoundException(Exception):
-    pass
-                
-        
-class DBException(APIException):
-    status_code = 500
-    default_detail = 'Internal Server Error'
+
     
 class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
                                 mixins.CreateModelMixin,
@@ -179,6 +172,125 @@ class CategoryListAndSetBudgetsview(mixins.ListModelMixin,
     def patch(self, request, *args, **kwargs):
         return self.partial_update(request, *args, **kwargs)
     
+
+class BudgetsRecommendView(mixins.CreateModelMixin,
+                            mixins.UpdateModelMixin,
+                            GenericAPIView):
+    queryset = Budgets.objects.all()
+    
+    def update_budget_entry(self, serializer):
+        serializer.is_valid(raise_exception=True)
+        self.perform_update(serializer)
+    
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return SetBudgetSerializer
+        return BudgetsRecommendSerializer
+    
+    #기존 이용중인 유저들이 설정한 평균값 입니다. 
+    def cal_ratio(self, request, category_name):
+        token_str = request.headers.get("Authorization").split(' ')[1]
+        data = jwt.decode(token_str, SECRET_KEY, ALGORITHM)
+        
+        if Category.objects.get(id=category_name).name == '기타':
+            #해당 1 - user의 비율 합이 기타의 비율이 됩니다. 10퍼가 안되는 비율은 0이므로
+            mean_ratio = 1 - sum(self.get_object(request).values_list('ratio', flat=True))
+            return mean_ratio
+        budgets =  Budgets.objects.filter(category_id=category_name)
+        budgets = budgets.exclude(user_id=data['user_id']).values_list('ratio', flat=True)
+        cnt = budgets.count()
+        #해당 카테고리에대한 모든 비율값을 들고 옵니다.
+        mean_ratio = sum(budgets) / cnt
+        if mean_ratio < 0.1:
+            return 0
+        return mean_ratio
+    
+    def update_ratio(self, request, except_list):
+        for exc in except_list:
+            cat = Category.objects.get(id=exc)
+            self.get_object(request).filter(category_id=exc).update(ratio=self.cal_ratio(request, cat.name))
+            
+    def get_object(self, request):
+        token_str = request.headers.get("Authorization").split(' ')[1]
+        data = jwt.decode(token_str, SECRET_KEY, ALGORITHM)
+        obj = Budgets.objects.filter(user_id=data['user_id'])
+        return obj
+    
+    def create(self, request, *args, **kwargs):
+        
+        datas = {'objects':[]}
+        # 자신이 한달 쓸 예산 총량 
+        total = request.data.pop('total', None)
+        #추천 비율
+        
+        category_list = Category.objects.all()
+        except_list = set(self.get_object(request).values_list('category', flat=True))
+        #category마다 데이터를 저장 해야합니다.
+        #또한 현재 있는 데이터는 post말고 update로 처리해줌 
+        for cat in category_list:
+            if cat.id not in except_list:
+            # request.data['category'] = Category.objects.get(name=key).pk
+            # request.data['amount'] = value
+            # request.data['ratio'] = value / total
+                serializer = self.get_serializer(data=request.data)
+                # 유효성 검증을 하기위해 modelserializer의 field값에 맞게 데이터를 넣어 줇니다.
+                #유효성 검증 전에 field에 접근해야합니다.
+                mean_ratio = self.cal_ratio(request, cat.pk)
+                serializer.initial_data['category'] = cat.pk
+                serializer.initial_data['amount'] = int(math.ceil(total * mean_ratio))
+                serializer.initial_data['ratio'] = mean_ratio
+            
+                serializer.is_valid(raise_exception=True)
+                self.perform_create(serializer)
+                datas['objects'].append(serializer.data)
+        # 각 category가 유효한지 확인한 후 total 대비 비율 update
+        self.update_ratio(request, except_list)
+        headers = self.get_success_headers(datas)
+        return Response(datas, status=status.HTTP_201_CREATED, headers=headers)
+    
+    def update(self, request, *args, **kwargs):
+        datas = {'objects':[]}
+        # 자신이 한달 쓸 예산 총량 
+        total = request.data.pop('total', None)
+        #추천 비율
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object(request)
+        category_list = Category.objects.all()
+        #category마다 데이터를 저장 해야합니다.
+        #또한 현재 있는 데이터는 post말고 update로 처리해줌 
+        for cat in category_list:
+            # request.data['category'] = Category.objects.get(name=key).pk
+            # request.data['amount'] = value
+            # request.data['ratio'] = value / total
+            
+            serializer = self.get_serializer(instance, data=request.data, partial=partial)
+            # 유효성 검증을 하기위해 modelserializer의 field값에 맞게 데이터를 넣어 줇니다.
+            #유효성 검증 전에 field에 접근해야합니다.
+            mean_ratio = self.cal_ratio(request, cat.pk)
+            serializer.initial_data['category'] = cat.pk
+            serializer.initial_data['amount'] = int(math.ceil(total * mean_ratio))
+            serializer.initial_data['ratio'] = mean_ratio
+            
+        
+            serializer.is_valid(raise_exception=True)
+            self.update_budget_entry(serializer)
+            datas['objects'].append(serializer.data)
+                
+        return Response(datas)
+    
+    def post(self, request, *args, **kwargs):
+        return self.create(request, *args, **kwargs)
+    
+    def patch(self, request, *args, **kwargs):
+        return self.partial_update(request, *args, **kwargs)
+    
+# 커스텀 예외 클래스 정의
+class CategoryNotFoundException(Exception):
+    pass
+                
+class DBException(APIException):
+    status_code = 500
+    default_detail = 'Internal Server Error'
     
 #custom 예외처리
 def custom_exception_handler(exc, context):
