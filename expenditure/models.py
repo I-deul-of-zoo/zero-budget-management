@@ -6,8 +6,8 @@ User = get_user_model()
 
 
 class ReasonableExpenditure(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    category = models.ForeignKey(Category, on_delete=models.CASCADE)
+    user_id = models.ForeignKey(User, on_delete=models.CASCADE)
+    category_id = models.ForeignKey(Category, on_delete=models.CASCADE)
     reasonable_amount = models.PositiveIntegerField(default=0)
     updated_at = models.DateTimeField(auto_now=True)
     

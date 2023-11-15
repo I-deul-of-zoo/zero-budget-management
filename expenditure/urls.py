@@ -1,5 +1,5 @@
 from django.urls import include, path
-from .views import ExpenditureLCAPIView, ExpenditureCRUDAPIView
+from .views import ExpenditureLCAPIView, ExpenditureCRUDAPIView, ExpenditureRecAPIView,ExpenditureNotiAPIView
 
 
 app_name = "expenditure"
@@ -7,5 +7,7 @@ app_name = "expenditure"
 
 urlpatterns = [
     path('', ExpenditureLCAPIView.as_view(), name='expend'),
-    path('<int:pk>/', ExpenditureCRUDAPIView.as_view(), name='expend_id')
+    path('<int:pk>/', ExpenditureCRUDAPIView.as_view(), name='expend_id'),
+    path('rec/', ExpenditureRecAPIView.as_view(), name='expend'),
+    path('noti/', ExpenditureNotiAPIView.as_view(), name='expend'),
 ]

@@ -1,9 +1,9 @@
-from rest_framework.serializers import ModelSerializer, SerializerMethodField
+from rest_framework.serializers import ModelSerializer, SerializerMethodField, Serializer
 from .models import Expenditure
 import jwt
 from config import settings
 from django.db.models import Sum
-
+from rest_framework import serializers
 SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = 'HS256'
 
@@ -36,7 +36,6 @@ class ExpenditureCreateSerializers(ModelSerializer):
     class Meta:
         model = Expenditure
         fields = ['user_id', 'consumption_amount', 'category_id', 'content', 'is_except']
-        read_only_fields = ['user_id', 'category_id']
         extra_kwargs = {
             'is_except': {'write_only': True},
         }
@@ -46,3 +45,18 @@ class ExpenditureRUDSerializers(ModelSerializer):
         model = Expenditure
         fields = ['user_id', 'consumption_amount', 'category_id', 'content', 'is_except']
         read_only_fields = ['user_id', 'category_id']
+        
+class ExpenditureRecSerializers(Serializer):
+    user = serializers.IntegerField()
+    total = serializers.IntegerField()
+    category_total = serializers.DictField(child=serializers.IntegerField())
+    datetime = serializers.DateField()
+    content = serializers.CharField(max_length=200)
+    
+class ExpenditureNotiSerializers(Serializer):
+    user = serializers.IntegerField()
+    #오늘 전체 지출 금액
+    total = serializers.IntegerField()
+    #category별 오늘 지출 금액, 오늘 적정금액, 오늘 위험도 
+    category_total = serializers.DictField(child=serializers.DictField(child=serializers.IntegerField()))
+    datetime = serializers.DateField()
