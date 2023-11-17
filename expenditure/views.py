@@ -191,7 +191,7 @@ class ExpenditureNotiAPIView(APIView):
         
         #현재 예산에 대한 남은 날짜
         after_one_month = Budgets.objects.filter(user_id=self.extract_user_id_in_toekn(request)).first().created_at + relativedelta(months=1)
-        remaining_date = (after_one_month - now).days
+         
         #인가된 한 유저에 대한 오늘의 지출들을 알 수 있는 부분
         queryset = self.get_objects(request).filter(created_at=now.strftime("%Y-%m-%d"), created_at__lt=after_one_day)
         total = 0
