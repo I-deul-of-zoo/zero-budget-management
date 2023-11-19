@@ -10,11 +10,15 @@ ALGORITHM = 'HS256'
 class ExpenditureListSerializers(ModelSerializer):
     total_expend = SerializerMethodField()
     total_expend_category = SerializerMethodField()
+    reasonable_amount = SerializerMethodField()
     
     def decode_token(self):
         token_str = self.context['request'].headers.get("Authorization").split(' ')[1]
         user_id = jwt.decode(token_str, SECRET_KEY, ALGORITHM)['user_id']
         return user_id
+    
+    def get_reasonable_amount(self, obj):
+        return obj.reasonable.reasonable_amount
     
     def get_total_expend(self, obj):
         user_id = self.decode_token()
@@ -28,16 +32,17 @@ class ExpenditureListSerializers(ModelSerializer):
     
     class Meta:
         model = Expenditure
-        fields = ['user_id', 'consumption_amount', 'category_id', 'content', 'is_except', 'total_expend', 'total_expend_category', 'created_at']
+        fields = ['user_id', 'consumption_amount', 'category_id', 'content', 'is_except', 'total_expend', 'total_expend_category', 'created_at' , 'reasonable_amount']
         read_only_fields = ['total_expend', 'total_expend_category', 'user_id',  'category_id', 'created_at']
         
         
 class ExpenditureCreateSerializers(ModelSerializer):  
     class Meta:
         model = Expenditure
-        fields = ['user_id', 'consumption_amount', 'category_id', 'content', 'is_except']
+        fields = ['user_id', 'consumption_amount', 'category_id', 'content', 'is_except', 'reasonable']
         extra_kwargs = {
             'is_except': {'write_only': True},
+            'reasonable': {'write_only': True},
         }
         
 class ExpenditureRUDSerializers(ModelSerializer):

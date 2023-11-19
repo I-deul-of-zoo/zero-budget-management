@@ -77,7 +77,8 @@ class ExpenditureLCAPIView(ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.initial_data['user_id'] = self.extract_user_id_in_toekn(request)
         serializer.initial_data['category_id'] = category.pk
-        
+        serializer.initial_data['reasonable'] = ReasonableExpenditure.objects.filter(user_id_id=self.extract_user_id_in_toekn(request)).get(category_id_id=category.pk).pk
+        print(serializer.initial_data['reasonable'])
         serializer.is_valid(raise_exception=True)
         self.perform_create(serializer)
         headers = self.get_success_headers(serializer.data)
@@ -202,11 +203,10 @@ class ExpenditureNotiAPIView(APIView):
             #오늘 적정금액
             reasonable = ReasonableExpenditure.objects.filter(user_id_id=self.extract_user_id_in_toekn(request)).get(category_id_id=cat.pk).reasonable_amount
             
-        
-                
-            data['category_total'][cat.pk]['오늘 지출 금액'] = expenditure
-            data['category_total'][cat.pk]['오늘 적정 금액'] = reasonable
-            data['category_total'][cat.pk]['위험도'] = int(expenditure / (reasonable * 10)) * 1000
+    
+            data["category_total"][cat.name]["오늘 지출 금액"] = expenditure
+            data["category_total"][cat.name]["오늘 적정 금액"] = reasonable
+            data["category_total"][cat.name]["위험도"] = int(expenditure / (reasonable * 10)) * 1000
             total += expenditure
         data['user'] = self.extract_user_id_in_toekn(request)
         data['total'] = total
